@@ -1,0 +1,101 @@
+{
+ "apiVersion": "1",
+ "jobs": [
+  {
+   "id": "d5573afa-636c-4219-832f-386f498243bf",
+   "title": "Customer Solution Architect (AMER)",
+   "department": "Growth",
+   "team": "Success",
+   "employmentType": "FullTime",
+   "location": "Remote",
+   "secondaryLocations": [],
+   "publishedAt": "2024-11-14T17:58:07.662+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Remote",
+   "address": {
+    "postalAddress": {
+     "addressRegion": "",
+     "addressCountry": "",
+     "addressLocality": ""
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/supabase/d5573afa-636c-4219-832f-386f498243bf",
+   "applyUrl": "https://jobs.ashbyhq.com/supabase/d5573afa-636c-4219-832f-386f498243bf/application",
+   "descriptionHtml": "<p style=\"min-height:1.5em\">Supabase is the Postgres development platform, built by developers for developers. We provide a complete backend solution including Database, Auth, Storage, Edge Functions,",
+   "descriptionPlain": "Supabase is the Postgres development platform, built by developers for developers. We provide a complete backend solution including Database, Auth, Storage, Edge Functions, Realtime, and Vector Search. All services are deeply integrated and designed for growth.\n\nWe\u2019re seeking a Customer Solutions Architect (CSA) to help drive the adoption of Supabase across a diverse range of customers: from agile"
+  },
+  {
+   "id": "e4e3ccb7-7b7d-42a2-be0f-26cbb5ae4abd",
+   "title": "Support Engineer (AMER)",
+   "department": "Growth",
+   "team": "Support",
+   "employmentType": "FullTime",
+   "location": "Remote",
+   "secondaryLocations": [],
+   "publishedAt": "2025-01-15T16:41:31.938+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Remote",
+   "address": {
+    "postalAddress": {
+     "addressRegion": "",
+     "addressCountry": "",
+     "addressLocality": ""
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/supabase/e4e3ccb7-7b7d-42a2-be0f-26cbb5ae4abd",
+   "applyUrl": "https://jobs.ashbyhq.com/supabase/e4e3ccb7-7b7d-42a2-be0f-26cbb5ae4abd/application",
+   "descriptionHtml": "<p style=\"min-height:1.5em\">Supabase is the Postgres development platform, built by developers for developers. We provide a complete backend solution including Database, Auth, Storage, Edge Functions,",
+   "descriptionPlain": "Supabase is the Postgres development platform, built by developers for developers. We provide a complete backend solution including Database, Auth, Storage, Edge Functions, Realtime, and Vector Search. All services are deeply integrated and designed for growth.\n\nWe are seeking Support Engineers to provide world-class developer support for anyone experiencing issues or seeking guidance when using S"
+  },
+  {
+   "id": "142135ae-a15f-4ec7-90bb-cb4e7968bc09",
+   "title": "Support Engineer (APAC)",
+   "department": "Growth",
+   "team": "Support",
+   "employmentType": "FullTime",
+   "location": "Remote",
+   "secondaryLocations": [],
+   "publishedAt": "2025-03-20T18:51:09.252+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Remote",
+   "address": {
+    "postalAddress": {
+     "addressRegion": "",
+     "addressCountry": "",
+     "addressLocality": ""
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/supabase/142135ae-a15f-4ec7-90bb-cb4e7968bc09",
+   "applyUrl": "https://jobs.ashbyhq.com/supabase/142135ae-a15f-4ec7-90bb-cb4e7968bc09/application",
+   "descriptionHtml": "<p style=\"min-height:1.5em\">Supabase is the Postgres development platform, built by developers for developers. We provide a complete backend solution including Database, Auth, Storage, Edge Functions,",
+   "descriptionPlain": "Supabase is the Postgres development platform, built by developers for developers. We provide a complete backend solution including Database, Auth, Storage, Edge Functions, Realtime, and Vector Search. All services are deeply integrated and designed for growth.\n\nWe are seeking Support Engineers to provide world-class developer support for anyone experiencing issues or seeking guidance when using S"
+  },
+  {
+   "id": "hidden-1",
+   "title": "Customer Solution Architect (AMER)",
+   "department": "Growth",
+   "team": "Success",
+   "employmentType": "FullTime",
+   "location": "Remote",
+   "secondaryLocations": [],
+   "publishedAt": "2024-11-14T17:58:07.662+00:00",
+   "isListed": false,
+   "isRemote": true,
+   "workplaceType": "Remote",
+   "address": {
+    "postalAddress": {
+     "addressRegion": "",
+     "addressCountry": "",
+     "addressLocality": ""
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/supabase/d5573afa-636c-4219-832f-386f498243bf",
+   "applyUrl": "https://jobs.ashbyhq.com/supabase/d5573afa-636c-4219-832f-386f498243bf/application",
+   "descriptionHtml": "<p style=\"min-height:1.5em\">Supabase is the Postgres development platform, built by developers for developers. We provide a complete backend solution including Database, Auth, Storage, Edge Functions,",
+   "descriptionPlain": "Supabase is the Postgres development platform, built by developers for developers. We provide a complete backend solution including Database, Auth, Storage, Edge Functions, Realtime, and Vector Search. All services are deeply integrated and designed for growth.\n\nWe\u2019re seeking a Customer Solutions Architect (CSA) to help drive the adoption of Supabase across a diverse range of customers: from agile"
+  }
+ ]
+}
