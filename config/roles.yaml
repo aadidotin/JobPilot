@@ -1,0 +1,67 @@
+# Role targeting — this is YOUR "what I want" file (companies.yaml is "where to look").
+#
+# Used in two places:
+#   1. search_terms  → JobSpy queries across LinkedIn / Indeed / Naukri.
+#      Each term is a separate market sweep, so keep the list focused (each adds runtime).
+#   2. title_include / title_exclude → SQL hard filter on EVERYTHING ingested,
+#      including whole ATS boards (Greenhouse/Lever/Ashby can only be fetched
+#      whole-company; this filter is what selects your roles out of them).
+#      Matching is case-insensitive substring on the job title.
+#
+# A title survives the filter if it matches ANY include term and NO exclude term.
+
+search_terms:
+  - Python Developer
+  - Software Developer
+  - Django Developer
+  - Laravel Developer
+  - MERN Stack Developer
+  - Full Stack Developer
+  - Backend Developer
+
+title_include:
+  - python
+  - django
+  - laravel
+  - php
+  - mern
+  - full stack
+  - fullstack
+  - full-stack
+  - backend
+  - back end
+  - back-end
+  - software engineer
+  - software developer
+  - web developer
+  - node
+  - react
+
+title_exclude:
+  - senior staff        # seniority bands out of range — tune to taste
+  - principal
+  - staff engineer
+  - director
+  - manager
+  - head of
+  - intern
+  - internship
+  - devops              # adjacent roles that match "engineer" keywords
+  - sre
+  - site reliability
+  - security
+  - data engineer
+  - data scientist
+  - machine learning
+  - android
+  - ios
+  - mobile
+  - react native
+  - qa
+  - test engineer
+  - salesforce
+  - sap
+  - .net
+  - dotnet
+  - c++
+  - embedded
