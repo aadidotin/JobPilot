@@ -51,6 +51,8 @@ class Job(Base):
     absent_polls: Mapped[int] = mapped_column(default=0)  # consecutive successful polls absent
     duplicate_of: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"))
 
+    digested_at: Mapped[datetime | None] = mapped_column(DateTime)  # included in a digest once
+
     # Intelligence (weekend 2+; columns exist so weekend-1 rows carry forward)
     score: Mapped[int | None] = mapped_column(Integer)
     missing_requirements: Mapped[str | None] = mapped_column(Text)  # JSON list, C8 rollup input

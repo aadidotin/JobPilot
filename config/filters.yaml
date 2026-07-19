@@ -1,0 +1,42 @@
+# Hard-filter policy (PROJECT.md §7 Stage 2 + design deltas).
+# These are cheap SQL/keyword gates — the Haiku scorer (weekend 2) does the
+# fine-grained ranking. Keep these loose; their job is volume control.
+
+# Only jobs first seen within this many days reach the digest (fresh-first).
+freshness_days: 7
+
+# Salary floors per market, ANNUAL in the given currency.
+# Postings with NO stated salary PASS (most omit it) and render unbadged;
+# the floor rejects only postings that state a salary below it.
+# null = floor disabled.
+salary_floor:
+  india: null        # e.g. {currency: INR, amount: 1500000}
+  remote-intl: null  # e.g. {currency: USD, amount: 60000}
+
+# Companies never shown (normalized match, aliases apply).
+company_blocklist: []
+
+# Location rules per market. Substring match, case-insensitive.
+location:
+  india:
+    # A job on an india-market board/search must match one of these.
+    include_any:
+      - india
+      - bengaluru
+      - bangalore
+      - mumbai
+      - delhi
+      - gurgaon
+      - gurugram
+      - noida
+      - hyderabad
+      - pune
+      - chennai
+      - remote
+    exclude: []
+  remote-intl:
+    # Must look remote. Region-locked remotes (e.g. "Remote, US") still pass
+    # here — eligibility nuance is the scorer's job, not a keyword's.
+    include_any:
+      - remote
+    exclude: []
