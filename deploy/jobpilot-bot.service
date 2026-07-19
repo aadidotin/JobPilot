@@ -1,0 +1,20 @@
+# systemd --user unit for the bot daemon (T3: Restart=always).
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/jobpilot-bot.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now jobpilot-bot
+#   loginctl enable-linger $USER   # keep it running after logout
+[Unit]
+Description=JobPilot Telegram bot daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/Desktop/Self-Product/JobPilot
+ExecStart=%h/.local/bin/uv run jobpilot bot
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
