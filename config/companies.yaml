@@ -28,4 +28,55 @@
 #     market: india
 #     aliases: ["Razorpay Software"]
 
-companies: []
+# All slugs below curl-verified 2026-07-19 (posting counts at time of check).
+
+companies:
+  # ---- India market ----
+  - name: PhonePe
+    ats: greenhouse
+    slug: phonepe
+    market: india
+    aliases: ["PhonePe Private Limited"]
+
+  - name: Postman
+    ats: greenhouse
+    slug: postman
+    market: india
+    aliases: ["Postman Inc"]
+
+  - name: CRED
+    ats: lever
+    slug: cred
+    market: india
+    aliases: ["Dreamplug Technologies"]
+
+  # ---- Remote-international market ----
+  - name: GitLab
+    ats: greenhouse
+    slug: gitlab
+    market: remote-intl
+    aliases: ["GitLab Inc"]
+
+  - name: Reddit
+    ats: greenhouse
+    slug: reddit
+    market: remote-intl
+    aliases: ["Reddit Inc"]
+
+  - name: PostHog
+    ats: ashby
+    slug: posthog
+    market: remote-intl
+    aliases: ["PostHog Inc"]
+
+  - name: Supabase
+    ats: ashby
+    slug: supabase
+    market: remote-intl
+    aliases: []
+
+  - name: Linear
+    ats: ashby
+    slug: linear
+    market: remote-intl
+    aliases: ["Linear Orbit"]
