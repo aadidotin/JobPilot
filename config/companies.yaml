@@ -1,0 +1,31 @@
+# JobPilot company curation list — the moat. Grown weekly, validated on edit.
+#
+# Your assignment before weekend 1: 30 hand-curated companies you'd actually
+# want to work at, each with a verified ATS board slug. Verify with:
+#   ./scripts/check_slugs.sh
+#
+# Fields:
+#   ats:     greenhouse | lever | ashby
+#   slug:    the board identifier in the ATS URL —
+#            greenhouse: https://boards-api.greenhouse.io/v1/boards/<slug>/jobs
+#            lever:      https://api.lever.co/v0/postings/<slug>
+#            ashby:      https://api.ashbyhq.com/posting-api/job-board/<slug>
+#   market:  india | remote-intl  (which of your two funnels this feeds)
+#   aliases: alternate names as they appear on LinkedIn/Indeed/Naukri —
+#            feeds cross-source dedupe (E9). Grow this list when dedupe misses.
+#
+# Example entries (replace with your real 30):
+#
+# companies:
+#   - name: PostHog
+#     ats: ashby
+#     slug: posthog
+#     market: remote-intl
+#     aliases: ["PostHog Inc"]
+#   - name: Razorpay
+#     ats: lever
+#     slug: razorpay
+#     market: india
+#     aliases: ["Razorpay Software"]
+
+companies: []
