@@ -200,6 +200,14 @@ def build_application(token: str, owner_chat_id: int):
             f"✅ Sent {len(delivered)}. {remaining + len(batch) - len(delivered)} still queued — /more for the next batch."
         )
 
+    async def on_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not owned(update):
+            return
+        from jobpilot.gate import build_report, render
+
+        with get_session() as session:
+            await update.message.reply_text(render(build_report(session)))
+
     async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not owned(update):
             return
@@ -207,13 +215,15 @@ def build_application(token: str, owner_chat_id: int):
             "JobPilot bot alive.\n"
             "• 👍/👎 on a card records what you think of it\n"
             "• /more [n] — pull the next n queued roles (default 10)\n"
-            "• /applied — list what you've applied to, or log a new one"
+            "• /applied — list what you've applied to, or log a new one\n"
+            "• /gate — progress toward the weekend-1 exit gate"
         )
 
     async def register_commands(application) -> None:
         await application.bot.set_my_commands([
             ("more", "Pull the next queued roles (/more 20 for a bigger batch)"),
             ("applied", "List applications, or log one: Company | Title"),
+            ("gate", "Weekend-1 gate progress per market x source tier"),
             ("start", "What this bot does"),
         ])
 
@@ -221,6 +231,7 @@ def build_application(token: str, owner_chat_id: int):
     app.add_handler(CallbackQueryHandler(on_annotation, pattern=r"^ann:\d+:(up|down)$"))
     app.add_handler(CommandHandler("applied", on_applied))
     app.add_handler(CommandHandler("more", on_more))
+    app.add_handler(CommandHandler("gate", on_gate))
     app.add_handler(CommandHandler("start", on_start))
     return app
 
