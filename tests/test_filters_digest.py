@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from jobpilot.digest import build_digest, mark_digested, render_job_message
+from jobpilot.digest import build_digest, mark_digested, render_job_message, select_for_digest
 from jobpilot.filters import (
     FilterConfig,
     filter_survivors,
@@ -38,8 +38,8 @@ def cfg():
 
 def job(session, *, title="Backend Engineer", market="remote-intl", location="Remote",
         first_seen=NOW - timedelta(days=1), provenance=FirstSeenSource.API,
-        status=JobStatus.OPEN, external_id=None, **kw):
-    j = Job(source="greenhouse", external_id=external_id or f"j{next(_seq)}",
+        status=JobStatus.OPEN, external_id=None, source="greenhouse", **kw):
+    j = Job(source=source, external_id=external_id or f"j{next(_seq)}",
             company="Acme", title=title, market=market, location=location,
             url="https://x.example/1", first_seen=first_seen, first_seen_source=provenance,
             last_seen=NOW, status=status, **kw)
@@ -151,3 +151,74 @@ def test_mark_digested_removes_from_next_run(session, cfg):
     assert [s.id for s in survivors] == [j.id]
     mark_digested(session, survivors, NOW)
     assert filter_survivors(session, cfg, NOW) == []
+
+
+# ---- digest cap allocation ----
+
+def test_select_returns_everything_under_the_cap(session):
+    jobs = [job(session, title="Python Developer") for _ in range(3)]
+    assert select_for_digest(jobs, 25) == jobs
+    assert select_for_digest(jobs, None) == jobs
+
+
+def test_select_round_robins_across_market_and_tier(session):
+    ats_india = [job(session, source="greenhouse", market="india") for _ in range(5)]
+    agg_remote = [job(session, source="linkedin", market="remote-intl") for _ in range(5)]
+    picked = select_for_digest(ats_india + agg_remote, 4)
+    assert len(picked) == 4
+    assert sum(1 for j in picked if j.source == "greenhouse") == 2
+    assert sum(1 for j in picked if j.source == "linkedin") == 2
+
+
+def test_select_keeps_bucket_order(session):
+    jobs = [job(session, source="greenhouse", market="india") for _ in range(4)]
+    assert select_for_digest(jobs, 2) == jobs[:2]
+
+
+def test_select_drains_a_short_bucket_without_dropping_slots(session):
+    """One lonely ATS row must not cost the digest three of its four slots."""
+    ats = [job(session, source="greenhouse", market="india")]
+    agg = [job(session, source="linkedin", market="remote-intl") for _ in range(5)]
+    picked = select_for_digest(ats + agg, 4)
+    assert len(picked) == 4
+    assert sum(1 for j in picked if j.source == "linkedin") == 3
+
+
+# ---- exclude-term word boundaries ----
+
+def _cfg(include, exclude):
+    return FilterConfig(title_include=include, title_exclude=exclude, freshness_days=7,
+                        salary_floor={}, company_blocklist=set(), location={})
+
+
+def test_exclude_does_not_match_inside_a_word():
+    """Regression: 'intern' was killing "Full Stack Internal Tooling"."""
+    cfg = _cfg(["full stack", "backend"], ["intern"])
+    assert passes_title("Senior Software Engineer - Full Stack Internal Tooling", cfg)
+    assert passes_title("Backend Engineer, International Payments", cfg)
+    assert not passes_title("Full Stack Intern", cfg)
+    assert not passes_title("Backend Engineer (Intern)", cfg)
+
+
+def test_exclude_terms_with_punctuation_still_match():
+    cfg = _cfg(["developer"], [".net", "c++"])
+    assert not passes_title("ASP.NET Developer", cfg)
+    assert not passes_title("C++ Developer", cfg)
+    assert passes_title("Python Developer", cfg)
+
+
+def test_multiword_exclude_matches():
+    cfg = _cfg(["engineer"], ["react native", "senior staff"])
+    assert not passes_title("React Native Engineer", cfg)
+    assert not passes_title("Senior Staff Engineer, Payments", cfg)
+    assert passes_title("React Engineer", cfg)
+
+
+def test_include_stays_substring_so_nodejs_still_matches():
+    cfg = _cfg(["node"], [])
+    assert passes_title("NodeJS Developer", cfg)
+    assert passes_title("Node.js Engineer", cfg)
+
+
+def test_empty_exclude_list_passes_everything_included():
+    assert passes_title("Backend Engineer", _cfg(["backend"], []))

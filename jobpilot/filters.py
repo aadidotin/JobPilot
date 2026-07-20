@@ -6,7 +6,9 @@ Edge case pinned by the design: a posting with no parseable salary PASSES
 the salary floor (most posts omit salary) and renders unbadged.
 """
 
+import re
 from dataclasses import dataclass
+from functools import lru_cache
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -42,9 +44,35 @@ class FilterConfig:
         )
 
 
+@lru_cache(maxsize=8)  # rebuilt per config, not per job title
+def _exclude_pattern(terms: tuple[str, ...]) -> re.Pattern | None:
+    """Excludes match on word boundaries; includes stay plain substrings.
+
+    The asymmetry is deliberate. A loose include only costs you an extra card
+    in the digest, which the excludes then get a shot at. A loose exclude
+    silently deletes a real job and you never learn it existed — 'intern' was
+    swallowing "Full Stack Internal Tooling". Boundaries are written by hand
+    rather than with \\b so terms ending in punctuation (.net, c++) still work.
+    """
+    if not terms:
+        return None
+    return re.compile("|".join(_bounded(t) for t in terms))
+
+
+def _bounded(term: str) -> str:
+    """Guard only the sides that actually end in a word character, so '.net'
+    still matches inside 'asp.net' while 'intern' stays out of 'internal'."""
+    head = r"(?<!\w)" if term[:1].isalnum() else ""
+    tail = r"(?!\w)" if term[-1:].isalnum() else ""
+    return head + re.escape(term) + tail
+
+
 def passes_title(title: str, cfg: FilterConfig) -> bool:
     t = title.lower()
-    return any(k in t for k in cfg.title_include) and not any(k in t for k in cfg.title_exclude)
+    if not any(k in t for k in cfg.title_include):
+        return False
+    pattern = _exclude_pattern(tuple(cfg.title_exclude))
+    return not (pattern and pattern.search(t))
 
 
 def passes_location(location: str | None, market: str, cfg: FilterConfig) -> bool:

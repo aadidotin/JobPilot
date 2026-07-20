@@ -1,0 +1,24 @@
+# Wall-clock windows checked inside the chained 30-min run (E10).
+# Cron fires the run every 30 min; these decide which legs actually execute.
+# Hours are LOCAL time, 24h. A window fires once per day, on the first run at
+# or after its hour — so a laptop asleep until 14:00 still gets the 09:00 and
+# 13:00 sweeps' worth of work as one catch-up sweep, not three.
+
+jobspy_hours: [9, 13, 19]   # 3x/day: morning / noon / evening
+digest_hours: [20]          # daily digest
+
+# Hard cap on job messages per digest. Survivors are freshest-first, so the
+# overflow is the oldest of the batch and simply waits for tomorrow's digest —
+# nothing is dropped. Without this a cold start sends one message per surviving
+# row (~290 on day one), which is a phone flood, not a digest.
+digest_max: 25
+
+# Per-source timeouts. ATS is a single HTTP call per board; JobSpy is a whole
+# multi-site sweep, so it gets a wall-clock budget instead.
+ats_timeout_seconds: 30
+jobspy_budget_seconds: 300
+
+# E11 per-tier silence alert: if a tier ingested nothing at all for this many
+# hours, Telegram says so. 24h during laptop-only v1 (sized to the laptop's
+# duty cycle); tighten to 12h once on an always-on host.
+silence_alert_hours: 24

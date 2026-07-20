@@ -5,10 +5,16 @@ never block the writer.
 
 import os
 
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from jobpilot.models import Base
+
+# Loaded here, not in each entry point: DB_PATH is read at import time, and any
+# module that imports db before calling load_dotenv() would otherwise silently
+# get the default path instead of the one configured in .env.
+load_dotenv()
 
 DB_PATH = os.environ.get("JOBPILOT_DB", "jobpilot.db")
 

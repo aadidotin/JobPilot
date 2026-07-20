@@ -11,6 +11,7 @@ from html import escape
 
 from sqlalchemy.orm import Session
 
+from jobpilot.core import ATS_SOURCES
 from jobpilot.models import FirstSeenSource, Job
 
 MARKET_TAG = {"india": "🇮🇳 india", "remote-intl": "🌍 remote-intl"}
@@ -61,11 +62,49 @@ def render_job_message(job: Job, now: datetime) -> dict:
     }
 
 
-def build_digest(jobs: list[Job], now: datetime) -> list[dict]:
+def select_for_digest(jobs: list[Job], limit: int | None) -> list[Job]:
+    """Fill the cap round-robin across market x source tier, freshest-first
+    inside each bucket.
+
+    Plain freshest-first would hand the whole digest to one bucket: aggregator
+    rows are 'observed' provenance, so their first_seen is ingest time, which
+    always outranks an ATS row carrying its true (older) posting date. The ATS
+    tier is the backbone and would never appear. E6 also measures the weekend-1
+    gate per market x tier, which a single-bucket digest cannot feed.
+    """
+    if not limit or len(jobs) <= limit:
+        return jobs
+    buckets: dict[tuple[str, str], list[Job]] = {}
+    for job in jobs:  # already freshest-first, so each bucket inherits that order
+        tier = "ats" if job.source in ATS_SOURCES else "aggregator"
+        buckets.setdefault((job.market, tier), []).append(job)
+
+    picked: list[Job] = []
+    queues = [iter(b) for _, b in sorted(buckets.items())]
+    while len(picked) < limit and queues:
+        for queue in list(queues):
+            if len(picked) == limit:
+                break
+            job = next(queue, None)
+            if job is None:
+                queues.remove(queue)
+            else:
+                picked.append(job)
+    return picked
+
+
+def build_digest(jobs: list[Job], now: datetime, limit: int | None = None) -> list[dict]:
+    """Payloads for one digest. `jobs` must arrive freshest-first: anything past
+    `limit` is held back, not dropped, and leads tomorrow's digest.
+    """
     if not jobs:
         return [{"text": f"📭 Digest {now:%d %b}: 0 new roles today. (Pipeline alive — this is a real zero, not a silence.)"}]
-    header = {"text": f"📬 Digest {now:%d %b}: {len(jobs)} new role(s)"}
-    return [header] + [render_job_message(j, now) for j in jobs]
+    shown = select_for_digest(jobs, limit)
+    held = len(jobs) - len(shown)
+    header = f"📬 Digest {now:%d %b}: {len(shown)} new role(s)"
+    if held:
+        header += f" — {held} more held for tomorrow (cap {limit})"
+    return [{"text": header}] + [render_job_message(j, now) for j in shown]
 
 
 def mark_digested(session: Session, jobs: list[Job], now: datetime) -> None:
