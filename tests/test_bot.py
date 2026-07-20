@@ -6,7 +6,14 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
-from jobpilot.bot import APPLIED_USAGE, list_applications, record_annotation, record_application
+from jobpilot.bot import (
+    APPLIED_USAGE,
+    list_applications,
+    next_batch,
+    parse_more_count,
+    record_annotation,
+    record_application,
+)
 from jobpilot.models import Annotation, Application, Base, Job
 
 NOW = datetime(2026, 7, 20, 12, 0)
@@ -109,3 +116,47 @@ def test_applied_bad_format_shows_usage(session):
     for bad in ("", "just a company", "| title only"):
         assert record_application(session, bad) == APPLIED_USAGE
     assert session.scalar(select(func.count()).select_from(Application)) == 0
+
+
+# ---- /more: draining the queue on demand ----
+
+def test_parse_more_count_defaults_and_clamps():
+    assert parse_more_count("") == 10
+    assert parse_more_count("garbage") == 10
+    assert parse_more_count("3") == 3
+    assert parse_more_count(" 7 ") == 7
+    assert parse_more_count("999") == 30   # clamped to MORE_MAX
+    assert parse_more_count("0") == 1
+    assert parse_more_count("-5") == 1
+
+
+def queued_job(session, **over):
+    base = dict(source="greenhouse", external_id=f"q{next(_seq)}", company="Acme",
+                title="Python Developer", market="india", location="Bengaluru, India",
+                url="https://x.example/1", first_seen=NOW, first_seen_source="api",
+                last_seen=NOW, status="open")
+    j = Job(**{**base, **over})
+    session.add(j)
+    session.flush()
+    return j
+
+
+def test_next_batch_returns_limit_and_remaining(session):
+    for _ in range(12):
+        queued_job(session)
+    batch, remaining = next_batch(session, 5, NOW)
+    assert len(batch) == 5 and remaining == 7
+
+
+def test_next_batch_skips_already_digested(session):
+    shown = queued_job(session)
+    shown.digested_at = NOW
+    queued_job(session)
+    batch, remaining = next_batch(session, 10, NOW)
+    assert len(batch) == 1 and remaining == 0
+    assert batch[0].id != shown.id
+
+
+def test_next_batch_empty_queue(session):
+    batch, remaining = next_batch(session, 10, NOW)
+    assert batch == [] and remaining == 0
