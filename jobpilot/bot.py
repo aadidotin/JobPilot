@@ -6,6 +6,7 @@ the async python-telegram-bot handlers are glue. Every handler ignores
 updates from anyone but the owner chat.
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -15,6 +16,7 @@ from rapidfuzz import fuzz
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from jobpilot import config_edit
 from jobpilot.core import utcnow
 from jobpilot.db import get_session, init_db
 from jobpilot.dedupe import norm_company, norm_title
@@ -29,6 +31,20 @@ APPLIED_USAGE = (
     "e.g. /applied Zerodha | Backend Engineer | email\n"
     "Channels: email, linkedin, portal (omit if none).\n"
     "Bare /applied lists what you've applied to."
+)
+COMPANY_USAGE = (
+    "/company list\n"
+    "/company add <Name> <greenhouse|lever|ashby> <slug> <india|remote-intl>\n"
+    "   e.g. /company add Zerodha lever zerodha india\n"
+    "   The board is polled before it is accepted, so a bad slug is rejected.\n"
+    "/company rm <Name>"
+)
+ROLE_USAGE = (
+    "/role list\n"
+    "/role include add <term>     e.g. /role include add golang\n"
+    "/role exclude add <term>     e.g. /role exclude add staff\n"
+    "/role include rm <term> | /role exclude rm <term>\n"
+    "Terms are case-insensitive; excludes match whole words."
 )
 LIST_LIMIT = 20
 MORE_DEFAULT = 10
@@ -200,6 +216,66 @@ def build_application(token: str, owner_chat_id: int):
             f"✅ Sent {len(delivered)}. {remaining + len(batch) - len(delivered)} still queued — /more for the next batch."
         )
 
+    async def on_company(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not owned(update):
+            return
+        args = context.args or []
+        action = (args[0].lower() if args else "list")
+        if action == "list":
+            await update.message.reply_text(config_edit.list_companies())
+        elif action == "add":
+            if len(args) < 5:
+                await update.message.reply_text(COMPANY_USAGE)
+                return
+            name, ats, slug, market = args[1], args[2], args[3], args[4]
+            await update.message.reply_text(f"🔎 Checking {ats}:{slug}…")
+            # Network call off the event loop; the board is polled BEFORE the
+            # slug is trusted, so a typo cannot sit in config failing silently.
+            ok, detail = await asyncio.to_thread(config_edit.verify_board, ats, slug, name)
+            if not ok:
+                await update.message.reply_text(f"❌ Not added — board check failed: {detail}")
+                return
+            await update.message.reply_text(
+                config_edit.add_company(name, ats, slug, market) + f"\n   Board OK: {detail}"
+            )
+        elif action in ("rm", "remove"):
+            if len(args) < 2:
+                await update.message.reply_text(COMPANY_USAGE)
+                return
+            await update.message.reply_text(config_edit.remove_company(" ".join(args[1:])))
+        else:
+            await update.message.reply_text(COMPANY_USAGE)
+
+    async def on_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not owned(update):
+            return
+        args = context.args or []
+        action = (args[0].lower() if args else "list")
+        if action == "list":
+            await update.message.reply_text(config_edit.list_terms())
+        elif action in ("include", "exclude") and len(args) >= 3:
+            op, term = args[1].lower(), " ".join(args[2:])
+            if op == "add":
+                await update.message.reply_text(config_edit.add_term(action, term))
+            elif op in ("rm", "remove"):
+                await update.message.reply_text(config_edit.remove_term(action, term))
+            else:
+                await update.message.reply_text(ROLE_USAGE)
+        else:
+            await update.message.reply_text(ROLE_USAGE)
+
+    async def on_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not owned(update):
+            return
+        args = context.args or []
+        if not args:
+            await update.message.reply_text(config_edit.show_settings())
+            return
+        if len(args) < 2:
+            await update.message.reply_text("Usage: /set <key> <value> — /set alone lists them.")
+            return
+        await update.message.reply_text(config_edit.set_value(args[0], args[1]))
+
     async def on_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not owned(update):
             return
@@ -216,7 +292,8 @@ def build_application(token: str, owner_chat_id: int):
             "• 👍/👎 on a card records what you think of it\n"
             "• /more [n] — pull the next n queued roles (default 10)\n"
             "• /applied — list what you've applied to, or log a new one\n"
-            "• /gate — progress toward the weekend-1 exit gate"
+            "• /gate — progress toward the weekend-1 exit gate\n"
+            "• /company, /role, /set — edit config from here"
         )
 
     async def register_commands(application) -> None:
@@ -224,6 +301,9 @@ def build_application(token: str, owner_chat_id: int):
             ("more", "Pull the next queued roles (/more 20 for a bigger batch)"),
             ("applied", "List applications, or log one: Company | Title"),
             ("gate", "Weekend-1 gate progress per market x source tier"),
+            ("company", "list / add / rm tracked ATS companies"),
+            ("role", "list / add / rm title include+exclude terms"),
+            ("set", "View or change tuning values (freshness_days, digest_max, ...)"),
             ("start", "What this bot does"),
         ])
 
@@ -232,6 +312,9 @@ def build_application(token: str, owner_chat_id: int):
     app.add_handler(CommandHandler("applied", on_applied))
     app.add_handler(CommandHandler("more", on_more))
     app.add_handler(CommandHandler("gate", on_gate))
+    app.add_handler(CommandHandler("company", on_company))
+    app.add_handler(CommandHandler("role", on_role))
+    app.add_handler(CommandHandler("set", on_set))
     app.add_handler(CommandHandler("start", on_start))
     return app
 

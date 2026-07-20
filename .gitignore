@@ -29,3 +29,7 @@ __pycache__/
 .idea/
 *.swp
 .DS_Store
+
+# config edits from Telegram leave these behind
+config/*.bak
+config/*.tmp

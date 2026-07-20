@@ -12,6 +12,7 @@ dependencies = [
     "python-telegram-bot>=21.0",
     "python-jobspy>=1.1.80",
     "python-dotenv>=1.0",
+    "ruamel-yaml>=0.19.1",
 ]
 
 [dependency-groups]
