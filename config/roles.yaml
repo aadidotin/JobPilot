@@ -10,6 +10,33 @@
 #
 # A title survives the filter if it matches ANY include term and NO exclude term.
 
+# Aggregator sweeps: one block per market, run 3x/day (see pipeline.py windows).
+# Each (site x search_term) pair is a separate HTTP sweep, so runtime is
+# roughly sites x terms — keep both lists tight.
+#   hours_old: recency bound asked of the site. Aggregator rows are 'observed'
+#              provenance, so THIS is what actually keeps them fresh.
+jobspy:
+  - market: india
+    # naukri is deliberately absent: as of 2026-07-20 its JobSpy scraper gets
+    # "406 recaptcha required" on every query. It fails SILENTLY (zero rows, no
+    # exception), so it looks like a successful empty poll while burning ~90s of
+    # sweep budget per run. Re-add and re-verify if JobSpy ships a fix.
+    sites: [indeed, linkedin]
+    location: India
+    country_indeed: india
+    results_wanted: 25
+    hours_old: 72
+  - market: remote-intl
+    sites: [indeed, linkedin]
+    # No location on purpose: LinkedIn parses the last token of `location` as a
+    # country, so "Remote" crashes it ("Invalid country string: 'iceland'").
+    # is_remote alone is what both sites actually honour here.
+    location: null
+    country_indeed: usa
+    is_remote: true
+    results_wanted: 25
+    hours_old: 72
+
 search_terms:
   - Python Developer
   - Software Developer
