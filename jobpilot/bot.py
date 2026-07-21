@@ -49,6 +49,7 @@ ROLE_USAGE = (
 LIST_LIMIT = 20
 MORE_DEFAULT = 10
 MORE_MAX = 30
+HEARTBEAT_SECONDS = 300
 
 
 # ---- business logic (sync, tested) ----
@@ -140,9 +141,69 @@ def record_application(session: Session, text: str) -> str:
     return f"✅ Application logged: {title} @ {company}{linked}. Timers anchor on now."
 
 
+# ---- liveness (T3) ----
+#
+# systemd's Restart=always only sees the process die. The failure that actually
+# costs us is quieter: the process stays up while long-polling stops (token
+# revoked, updater task dead, network gone). Digests still arrive — they are
+# sent by jobpilot/telegram.py, not by this daemon — so the only symptom is
+# that buttons do nothing, and 👍 taps are exactly what the weekend-1 gate
+# counts. A dead bot would read as "liked nothing this week" and silently burn
+# gate weeks. So the bot pings its OWN check, on its own URL.
+
+def scrub(text: str, token: str) -> str:
+    """Never let the token reach a third-party ping body. httpx embeds the full
+    request URL — token and all — in its error strings, which is the same
+    reason its logger is muted in main()."""
+    return text.replace(token, "<token>") if token else text
+
+
+def ping_target(base: str, ok: bool) -> str:
+    """healthchecks.io: <url> is a success ping, <url>/fail alerts immediately
+    rather than waiting out the grace period."""
+    return base.rstrip("/") + ("" if ok else "/fail")
+
+
+async def liveness(app, token: str = "") -> tuple[bool, str]:
+    """Two independent things must hold, because either alone lies.
+
+    `updater.running` alone stays True if the process is up but the token was
+    revoked; a successful API call alone proves nothing about whether anything
+    is consuming updates. Together they cover the realistic failures.
+    """
+    updater = getattr(app, "updater", None)
+    if updater is None or not updater.running:
+        return False, "updater is not polling"
+    try:
+        me = await app.bot.get_me()
+    except Exception as e:
+        return False, scrub(f"get_me failed: {type(e).__name__}: {e}", token)
+    return True, f"polling as @{me.username}"
+
+
+async def heartbeat(app, url: str, token: str = "", interval: int = HEARTBEAT_SECONDS,
+                    sleep=None, post=None) -> None:
+    import httpx
+
+    sleep = sleep or asyncio.sleep
+    while True:
+        await sleep(interval)
+        ok, detail = await liveness(app, token)
+        if not ok:
+            log.warning("bot liveness check failed: %s", detail)
+        try:
+            if post is not None:
+                await post(ping_target(url, ok), detail)
+            else:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    await client.post(ping_target(url, ok), content=detail)
+        except Exception as e:  # a failed ping must never kill the daemon
+            log.warning("bot ping failed: %s", scrub(str(e), token))
+
+
 # ---- telegram glue ----
 
-def build_application(token: str, owner_chat_id: int):
+def build_application(token: str, owner_chat_id: int, ping_url: str | None = None):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
     from telegram.ext import (
         Application,
@@ -307,7 +368,25 @@ def build_application(token: str, owner_chat_id: int):
             ("start", "What this bot does"),
         ])
 
-    app = Application.builder().token(token).post_init(register_commands).build()
+    async def start_heartbeat(application) -> None:
+        await register_commands(application)
+        if not ping_url:
+            log.info("no HEALTHCHECKS_BOT_PING_URL — bot liveness ping disabled")
+            return
+        # post_init runs before polling starts, but heartbeat sleeps first, so
+        # the updater is up well before the first check.
+        application.bot_data["heartbeat"] = asyncio.create_task(
+            heartbeat(application, ping_url, token)
+        )
+        log.info("bot liveness ping every %ss", HEARTBEAT_SECONDS)
+
+    async def stop_heartbeat(application) -> None:
+        task = application.bot_data.get("heartbeat")
+        if task is not None:
+            task.cancel()
+
+    app = (Application.builder().token(token)
+           .post_init(start_heartbeat).post_shutdown(stop_heartbeat).build())
     app.add_handler(CallbackQueryHandler(on_annotation, pattern=r"^ann:\d+:(up|down)$"))
     app.add_handler(CommandHandler("applied", on_applied))
     app.add_handler(CommandHandler("more", on_more))
@@ -327,6 +406,7 @@ def main():
     app = build_application(
         os.environ["TELEGRAM_BOT_TOKEN"].strip(),
         int(os.environ["TELEGRAM_CHAT_ID"]),
+        ping_url=os.environ.get("HEALTHCHECKS_BOT_PING_URL"),
     )
     log.info("bot daemon starting (long polling)")
     app.run_polling(allowed_updates=["message", "callback_query"])

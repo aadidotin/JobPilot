@@ -2,17 +2,23 @@
 
 from datetime import datetime
 
+import asyncio
+
 import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from jobpilot.bot import (
     APPLIED_USAGE,
+    heartbeat,
     list_applications,
+    liveness,
+    ping_target,
     next_batch,
     parse_more_count,
     record_annotation,
     record_application,
+    scrub,
 )
 from jobpilot.models import Annotation, Application, Base, Job
 
@@ -160,3 +166,105 @@ def test_next_batch_skips_already_digested(session):
 def test_next_batch_empty_queue(session):
     batch, remaining = next_batch(session, 10, NOW)
     assert batch == [] and remaining == 0
+
+
+# ---- liveness ping (T3) ----
+#
+# Driven with asyncio.run rather than pytest-asyncio: one heartbeat is not
+# worth a new test dependency.
+
+TOKEN = "123456:FAKE-TOKEN-VALUE"
+
+
+class FakeUpdater:
+    def __init__(self, running=True):
+        self.running = running
+
+
+class FakeBot:
+    def __init__(self, username="jobpilot_bot", error=None):
+        self.username = username
+        self.error = error
+
+    async def get_me(self):
+        if self.error:
+            raise self.error
+        return type("Me", (), {"username": self.username})()
+
+
+class FakeApp:
+    def __init__(self, updater=FakeUpdater(), bot=None):
+        self.updater = updater
+        self.bot = bot or FakeBot()
+
+
+def test_scrub_removes_the_token():
+    leaky = f"ConnectError: POST https://api.telegram.org/bot{TOKEN}/getMe"
+    assert TOKEN not in scrub(leaky, TOKEN)
+    assert "<token>" in scrub(leaky, TOKEN)
+
+
+def test_ping_target_uses_fail_endpoint_when_unhealthy():
+    assert ping_target("https://hc-ping.com/uuid", True) == "https://hc-ping.com/uuid"
+    assert ping_target("https://hc-ping.com/uuid/", False) == "https://hc-ping.com/uuid/fail"
+
+
+def test_liveness_healthy():
+    ok, detail = asyncio.run(liveness(FakeApp(), TOKEN))
+    assert ok and "jobpilot_bot" in detail
+
+
+def test_liveness_fails_when_updater_stopped():
+    ok, detail = asyncio.run(liveness(FakeApp(updater=FakeUpdater(running=False)), TOKEN))
+    assert not ok and "not polling" in detail
+
+
+def test_liveness_fails_when_api_rejects_the_token():
+    """The failure systemd cannot see: process up, token dead."""
+    app = FakeApp(bot=FakeBot(error=RuntimeError(f"Unauthorized for bot{TOKEN}")))
+    ok, detail = asyncio.run(liveness(app, TOKEN))
+    assert not ok
+    assert TOKEN not in detail  # must not leak into the ping body
+
+
+def _run_heartbeat(app, url, pings, rounds=2, post=None):
+    calls = {"n": 0}
+
+    async def sleep(_):
+        calls["n"] += 1
+        if calls["n"] > rounds:
+            raise asyncio.CancelledError
+
+    async def record(target, detail):
+        pings.append((target, detail))
+
+    async def go():
+        with pytest.raises(asyncio.CancelledError):
+            await heartbeat(app, url, TOKEN, sleep=sleep, post=post or record)
+
+    asyncio.run(go())
+
+
+def test_heartbeat_pings_success_while_healthy():
+    pings = []
+    _run_heartbeat(FakeApp(), "https://hc-ping.com/uuid", pings)
+    assert len(pings) == 2
+    assert all(target == "https://hc-ping.com/uuid" for target, _ in pings)
+
+
+def test_heartbeat_pings_fail_when_dead():
+    pings = []
+    _run_heartbeat(FakeApp(updater=FakeUpdater(running=False)), "https://hc-ping.com/uuid", pings)
+    assert all(target.endswith("/fail") for target, _ in pings)
+
+
+def test_heartbeat_survives_a_ping_outage():
+    """The monitor being down must never take the bot down with it."""
+    pings = []
+
+    async def flaky(target, detail):
+        pings.append(target)
+        raise OSError("network unreachable")
+
+    _run_heartbeat(FakeApp(), "https://hc-ping.com/uuid", pings, rounds=3, post=flaky)
+    assert len(pings) == 3  # kept looping through every failure

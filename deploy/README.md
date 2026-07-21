@@ -104,6 +104,26 @@ HEALTHCHECKS_PING_URL=https://hc-ping.com/your-uuid-here
 This catches "didn't run". The per-tier silence alert inside the pipeline
 catches the other failure — "ran, but ingested nothing".
 
+Create a **second, separate** check for the bot daemon (period 10m, grace 20m —
+it pings every 5 minutes) and add:
+
+```
+HEALTHCHECKS_BOT_PING_URL=https://hc-ping.com/a-different-uuid
+```
+
+Separate on purpose: sharing one URL would let the bot's healthy pings mask a
+dead pipeline, which is the exact failure the first check exists to catch.
+
+The bot check is not redundant with `Restart=always`. systemd only sees the
+process exit; the expensive failure is quieter — process up, long-polling
+stopped (token revoked, updater dead, network gone). Digests keep arriving,
+because those are sent by the pipeline, not the daemon, so the only visible
+symptom is buttons that do nothing. Since 👍 taps are what `jobpilot gate`
+counts, a silently dead bot reads as "liked nothing this week" and burns gate
+weeks. The heartbeat checks both that the updater is polling and that the API
+still accepts the token, and hits `/fail` on a bad result so the alert is
+immediate rather than waiting out the grace period.
+
 ## Verifying without waiting for a window
 
 ```bash
