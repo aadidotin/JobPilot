@@ -73,13 +73,79 @@ SWEEP_USAGE = (
     "(recaptcha-blocked, fails silently) and LinkedIn locations must end in a "
     "real country."
 )
+MORE_USAGE = (
+    "/more        — send the next 10 queued roles\n"
+    "/more 25     — send 25 (max 30)\n"
+    "\n"
+    "The daily digest is capped, so anything over the cap waits in the queue "
+    "rather than being dropped. This drains it on demand."
+)
+GATE_USAGE = (
+    "/gate — no arguments.\n"
+    "\n"
+    "Needs >=8 👍/week for 2 consecutive weeks before any scoring or drafting "
+    "code gets built. The windows are ROLLING 7-day ones, not calendar weeks, "
+    "so 👍 age out — a quiet week resets progress.\n"
+    "It also splits 'shown but never liked' (your taste) from 'delivered "
+    "nothing' (sourcing), per market x source tier."
+)
+SET_USAGE = (
+    "/set                      — show every tunable value and its range\n"
+    "/set freshness_days 14    — how many days back a role stays digestible\n"
+    "/set digest_max 25        — cap on job messages per digest\n"
+    "/set jobspy_hours 9,13,19 — when the aggregator sweeps run (24h, local)\n"
+    "/set digest_hours 20      — when the digest goes out\n"
+    "\n"
+    "Bounds are guardrails, not preferences — /set alone lists them."
+)
 LIST_LIMIT = 20
 MORE_DEFAULT = 10
 MORE_MAX = 30
 HEARTBEAT_SECONDS = 300
 
+# command -> (one-line summary for /help, full usage for /help <command>).
+# Ordered daily-loop first, then config editing. A test asserts this covers
+# every registered handler, so the two cannot drift apart.
+HELP: dict[str, tuple[str, str]] = {
+    "more": ("Send the next queued roles", MORE_USAGE),
+    "applied": ("List or log applications", APPLIED_USAGE),
+    "gate": ("Progress toward the weekend-1 exit gate", GATE_USAGE),
+    "company": ("Which ATS boards get polled", COMPANY_USAGE),
+    "role": ("Title filters + aggregator search queries", ROLE_USAGE),
+    "filter": ("Blocklist, salary floors, location rules", FILTER_USAGE),
+    "sweep": ("What LinkedIn/Indeed are asked for", SWEEP_USAGE),
+    "set": ("Numeric tunables and schedule hours", SET_USAGE),
+    "help": ("This list; /help <command> for detail", "/help\n/help <command>"),
+    "start": ("What this bot is", "/start"),
+}
+DAILY = ("more", "applied", "gate")
+CONFIG = ("company", "role", "filter", "sweep", "set")
+
 
 # ---- business logic (sync, tested) ----
+
+def render_help(topic: str = "") -> str:
+    """/help, or /help <command> for that command's full usage."""
+    topic = topic.strip().lstrip("/").lower()
+    if topic:
+        if topic not in HELP:
+            return (f"❌ No command /{topic}. Try /help.")
+        return f"/{topic} — {HELP[topic][0]}\n\n{HELP[topic][1]}"
+
+    def block(title: str, names) -> str:
+        rows = "\n".join(f"  /{n:<8} {HELP[n][0]}" for n in names)
+        return f"{title}\n{rows}"
+
+    # Anything not explicitly grouped still gets listed, so a new command
+    # cannot quietly go missing from the overview.
+    other = [n for n in HELP if n not in DAILY and n not in CONFIG]
+    return "\n\n".join([
+        "🧭 JobPilot — /help <command> for detail on any of these.",
+        block("Day to day:", DAILY),
+        block("Editing config (no laptop needed):", CONFIG),
+        block("Meta:", other),
+        "👍/👎 on a job card is the whole feedback loop — it is what /gate counts.",
+    ])
 
 def parse_more_count(text: str) -> int:
     try:
@@ -431,31 +497,22 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
         with get_session() as session:
             await update.message.reply_text(render(build_report(session)))
 
+    async def on_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not owned(update):
+            return
+        await update.message.reply_text(render_help(" ".join(context.args or "")))
+
     async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not owned(update):
             return
-        await update.message.reply_text(
-            "JobPilot bot alive.\n"
-            "• 👍/👎 on a card records what you think of it\n"
-            "• /more [n] — pull the next n queued roles (default 10)\n"
-            "• /applied — list what you've applied to, or log a new one\n"
-            "• /gate — progress toward the weekend-1 exit gate\n"
-            "• /company, /role, /filter, /sweep, /set — edit config from here\n"
-            "  (every config/*.yaml value is reachable; each command alone shows usage)"
-        )
+        # One source of truth: /start is the greeting, /help is the content.
+        await update.message.reply_text("JobPilot bot alive.\n\n" + render_help())
 
     async def register_commands(application) -> None:
-        await application.bot.set_my_commands([
-            ("more", "Pull the next queued roles (/more 20 for a bigger batch)"),
-            ("applied", "List applications, or log one: Company | Title"),
-            ("gate", "Weekend-1 gate progress per market x source tier"),
-            ("company", "list / add / rm / alias tracked ATS companies"),
-            ("role", "title include+exclude terms, and aggregator search queries"),
-            ("filter", "blocklist, salary floors, location rules"),
-            ("sweep", "what LinkedIn/Indeed are asked for (sites, location, recency)"),
-            ("set", "View or change tuning values (freshness_days, digest_max, ...)"),
-            ("start", "What this bot does"),
-        ])
+        # The in-app command menu is generated from HELP so it cannot drift.
+        await application.bot.set_my_commands(
+            [(name, summary) for name, (summary, _) in HELP.items()]
+        )
 
     async def start_heartbeat(application) -> None:
         await register_commands(application)
@@ -485,6 +542,7 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
     app.add_handler(CommandHandler("filter", on_filter))
     app.add_handler(CommandHandler("sweep", on_sweep))
     app.add_handler(CommandHandler("set", on_set))
+    app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("start", on_start))
     return app
 

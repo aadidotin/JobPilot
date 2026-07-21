@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from jobpilot.bot import (
     APPLIED_USAGE,
+    HELP,
     heartbeat,
     list_applications,
     liveness,
@@ -18,6 +19,7 @@ from jobpilot.bot import (
     parse_more_count,
     record_annotation,
     record_application,
+    render_help,
     scrub,
 )
 from jobpilot.models import Annotation, Application, Base, Job
@@ -268,3 +270,56 @@ def test_heartbeat_survives_a_ping_outage():
 
     _run_heartbeat(FakeApp(), "https://hc-ping.com/uuid", pings, rounds=3, post=flaky)
     assert len(pings) == 3  # kept looping through every failure
+
+
+# ---- /help ----
+
+def test_help_lists_every_command_grouped():
+    out = render_help()
+    for name in HELP:
+        assert f"/{name}" in out
+    assert "Day to day:" in out and "Editing config" in out
+
+
+def test_help_topic_returns_that_commands_usage():
+    out = render_help("sweep")
+    assert "/sweep <market> sites" in out
+    assert "naukri" in out  # the guard worth knowing about before you try it
+
+
+def test_help_topic_tolerates_a_leading_slash_and_case():
+    assert render_help("/Filter") == render_help("filter")
+
+
+def test_help_on_an_unknown_command():
+    out = render_help("teleport")
+    assert "❌" in out and "/help" in out
+
+
+def test_help_covers_every_registered_command():
+    """The guard that matters: a new CommandHandler with no HELP entry is
+    invisible in both /help and Telegram's command menu."""
+    from telegram.ext import CommandHandler
+
+    from jobpilot.bot import build_application
+
+    app = build_application("123456:FAKE-TOKEN-VALUE", 1)
+    registered = {
+        cmd
+        for group in app.handlers.values()
+        for h in group
+        if isinstance(h, CommandHandler)
+        for cmd in h.commands
+    }
+    assert registered == set(HELP), (
+        f"missing from HELP: {registered - set(HELP)}; "
+        f"in HELP but not registered: {set(HELP) - registered}"
+    )
+
+
+def test_ungrouped_commands_still_appear_in_the_overview(monkeypatch):
+    """A command added to HELP but to neither group must not vanish."""
+    from jobpilot import bot as bot_module
+
+    monkeypatch.setitem(bot_module.HELP, "teleport", ("Go somewhere", "/teleport"))
+    assert "/teleport" in render_help()
