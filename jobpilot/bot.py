@@ -122,6 +122,31 @@ DAILY = ("more", "applied", "gate")
 CONFIG = ("company", "role", "filter", "sweep", "set")
 
 
+# ---- access control ----
+#
+# Telegram has no "private bot" setting: anyone who knows the username can
+# open a chat and send commands. The only gate is ours — every handler checks
+# the chat id against the owner's before doing anything.
+
+UNAUTHORIZED_LOG_CAP = 100
+
+
+def note_unauthorized(chat_id, seen: set) -> str | None:
+    """Log an unauthorized chat once, not once per message.
+
+    Returns the line to log, or None if this chat was already reported. The
+    set is bounded and reset when full: an attacker who can cycle chat ids
+    must not be able to grow it without limit, and silent rejection is
+    worthless if nobody can ever see it happened.
+    """
+    if chat_id in seen:
+        return None
+    if len(seen) >= UNAUTHORIZED_LOG_CAP:
+        seen.clear()
+    seen.add(chat_id)
+    return f"ignored update from unauthorized chat {chat_id}"
+
+
 # ---- business logic (sync, tested) ----
 
 def render_help(topic: str = "") -> str:
@@ -305,9 +330,19 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
         ContextTypes,
     )
 
+    strangers: set[int] = set()
+
     def owned(update: Update) -> bool:
         chat = update.effective_chat
-        return chat is not None and chat.id == owner_chat_id
+        if chat is not None and chat.id == owner_chat_id:
+            return True
+        # Deliberately no reply: answering confirms an active bot behind the
+        # username and invites probing. Rejection is silent to them, visible
+        # to us. Only the chat id is logged — message text could be anything.
+        line = note_unauthorized(chat.id if chat else None, strangers)
+        if line:
+            log.warning("%s", line)
+        return False
 
     async def on_annotation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -510,9 +545,16 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
 
     async def register_commands(application) -> None:
         # The in-app command menu is generated from HELP so it cannot drift.
+        # Scoped to the owner's chat: the DEFAULT scope is shown to every user
+        # who opens the bot, which told strangers exactly what it does and what
+        # it tracks even though they could not run any of it.
+        from telegram import BotCommandScopeChat, BotCommandScopeDefault
+
+        commands = [(name, summary) for name, (summary, _) in HELP.items()]
         await application.bot.set_my_commands(
-            [(name, summary) for name, (summary, _) in HELP.items()]
+            commands, scope=BotCommandScopeChat(chat_id=owner_chat_id)
         )
+        await application.bot.delete_my_commands(scope=BotCommandScopeDefault())
 
     async def start_heartbeat(application) -> None:
         await register_commands(application)

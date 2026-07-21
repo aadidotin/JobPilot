@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
+from jobpilot import bot as bot_module
 from jobpilot.bot import (
     APPLIED_USAGE,
     HELP,
@@ -16,6 +17,7 @@ from jobpilot.bot import (
     liveness,
     ping_target,
     next_batch,
+    note_unauthorized,
     parse_more_count,
     record_annotation,
     record_application,
@@ -323,3 +325,86 @@ def test_ungrouped_commands_still_appear_in_the_overview(monkeypatch):
 
     monkeypatch.setitem(bot_module.HELP, "teleport", ("Go somewhere", "/teleport"))
     assert "/teleport" in render_help()
+
+
+# ---- access control ----
+#
+# Telegram has no private-bot setting; anyone who knows the username can send
+# to it. Our chat-id check is the entire perimeter.
+
+def test_unauthorized_chat_is_logged_once_not_per_message():
+    seen = set()
+    assert note_unauthorized(999, seen) is not None
+    assert note_unauthorized(999, seen) is None   # no flood from a probe loop
+    assert note_unauthorized(1000, seen) is not None
+
+
+def test_unauthorized_log_set_is_bounded():
+    """A spammer cycling chat ids must not grow this without limit."""
+    seen = set()
+    for i in range(bot_module.UNAUTHORIZED_LOG_CAP * 3):
+        note_unauthorized(i, seen)
+    assert len(seen) <= bot_module.UNAUTHORIZED_LOG_CAP
+
+
+class Recorder:
+    """Stands in for update.message / update.callback_query; any reply at all
+    to a stranger is a failure, so every method records and fails loudly."""
+
+    def __init__(self):
+        self.replies = []
+
+    async def reply_text(self, *a, **k):
+        self.replies.append(a)
+
+    async def answer(self, *a, **k):
+        self.replies.append(a)
+
+    async def edit_message_reply_markup(self, *a, **k):
+        self.replies.append(a)
+
+
+class FakeUpdate:
+    def __init__(self, chat_id, data=None):
+        self.effective_chat = type("C", (), {"id": chat_id})()
+        self.message = Recorder()
+        self.callback_query = Recorder()
+        self.callback_query.data = data or "ann:1:up"
+
+
+@pytest.mark.parametrize("chat_id", [0, -1, 12345, 987654321])
+def test_no_handler_responds_to_a_stranger(chat_id):
+    """Every registered handler, not a sampled few — a new ungated command
+    fails here instead of shipping."""
+    from telegram.ext import CallbackQueryHandler, CommandHandler
+
+    from jobpilot.bot import build_application
+
+    owner = 555000111
+    assert chat_id != owner
+    app = build_application(TOKEN, owner)
+    handlers = [h for group in app.handlers.values() for h in group
+                if isinstance(h, (CommandHandler, CallbackQueryHandler))]
+    assert len(handlers) >= 11
+
+    for handler in handlers:
+        update = FakeUpdate(chat_id)
+        ctx = type("C", (), {"args": [], "bot": None})()
+        asyncio.run(handler.callback(update, ctx))
+        assert update.message.replies == [], f"{handler} replied to a stranger"
+
+
+def test_owner_is_not_blocked():
+    """The gate must not be so tight it locks out the owner."""
+    from telegram.ext import CommandHandler
+
+    from jobpilot.bot import build_application
+
+    owner = 555000111
+    app = build_application(TOKEN, owner)
+    handler = next(h for group in app.handlers.values() for h in group
+                   if isinstance(h, CommandHandler) and "help" in h.commands)
+    update = FakeUpdate(owner)
+    ctx = type("C", (), {"args": [], "bot": None})()
+    asyncio.run(handler.callback(update, ctx))
+    assert update.message.replies  # got a real answer
