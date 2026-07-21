@@ -37,14 +37,41 @@ COMPANY_USAGE = (
     "/company add <Name> <greenhouse|lever|ashby> <slug> <india|remote-intl>\n"
     "   e.g. /company add Zerodha lever zerodha india\n"
     "   The board is polled before it is accepted, so a bad slug is rejected.\n"
-    "/company rm <Name>"
+    "/company rm <Name>\n"
+    "/company alias <Name> add|rm <alias>   — feeds cross-source dedupe"
 )
 ROLE_USAGE = (
     "/role list\n"
     "/role include add <term>     e.g. /role include add golang\n"
     "/role exclude add <term>     e.g. /role exclude add staff\n"
-    "/role include rm <term> | /role exclude rm <term>\n"
-    "Terms are case-insensitive; excludes match whole words."
+    "/role search add <query>     e.g. /role search add Python Developer\n"
+    "/role <kind> rm <term>\n"
+    "\n"
+    "include/exclude filter what was already fetched (whole ATS boards too).\n"
+    "search is what LinkedIn/Indeed are actually ASKED for — different job.\n"
+    "Excludes match whole words; search queries keep the case you type."
+)
+FILTER_USAGE = (
+    "/filter block list | add <Company> | rm <Company>\n"
+    "/filter salary                       — show floors\n"
+    "/filter salary <market> <CUR> <amt>  e.g. /filter salary india INR 1500000\n"
+    "/filter salary <market> off\n"
+    "/filter location                     — show location rules\n"
+    "/filter location <market> include|exclude add|rm <term>\n"
+    "\n"
+    "Markets: india, remote-intl. Postings with no stated salary always pass."
+)
+SWEEP_USAGE = (
+    "/sweep                                — show both sweeps\n"
+    "/sweep <market> sites indeed,linkedin\n"
+    "/sweep <market> location Bengaluru, India   (or: none)\n"
+    "/sweep <market> is_remote true|false\n"
+    "/sweep <market> results_wanted 25\n"
+    "/sweep <market> hours_old 72\n"
+    "\n"
+    "These control what the aggregators are asked for. naukri is refused "
+    "(recaptcha-blocked, fails silently) and LinkedIn locations must end in a "
+    "real country."
 )
 LIST_LIMIT = 20
 MORE_DEFAULT = 10
@@ -299,6 +326,13 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
             await update.message.reply_text(
                 config_edit.add_company(name, ats, slug, market) + f"\n   Board OK: {detail}"
             )
+        elif action == "alias":
+            if len(args) < 4:
+                await update.message.reply_text(COMPANY_USAGE)
+                return
+            await update.message.reply_text(
+                config_edit.edit_alias(args[1], args[2].lower(), " ".join(args[3:]))
+            )
         elif action in ("rm", "remove"):
             if len(args) < 2:
                 await update.message.reply_text(COMPANY_USAGE)
@@ -314,7 +348,7 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
         action = (args[0].lower() if args else "list")
         if action == "list":
             await update.message.reply_text(config_edit.list_terms())
-        elif action in ("include", "exclude") and len(args) >= 3:
+        elif action in config_edit.TERM_KINDS and len(args) >= 3:
             op, term = args[1].lower(), " ".join(args[2:])
             if op == "add":
                 await update.message.reply_text(config_edit.add_term(action, term))
@@ -324,6 +358,58 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
                 await update.message.reply_text(ROLE_USAGE)
         else:
             await update.message.reply_text(ROLE_USAGE)
+
+    async def on_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not owned(update):
+            return
+        args = context.args or []
+        section = (args[0].lower() if args else "")
+        if section == "block":
+            op = (args[1].lower() if len(args) > 1 else "list")
+            if op == "list":
+                await update.message.reply_text(config_edit.list_blocklist())
+            elif op == "add" and len(args) >= 3:
+                await update.message.reply_text(config_edit.block_company(" ".join(args[2:])))
+            elif op in ("rm", "remove") and len(args) >= 3:
+                await update.message.reply_text(config_edit.unblock_company(" ".join(args[2:])))
+            else:
+                await update.message.reply_text(FILTER_USAGE)
+        elif section == "salary":
+            if len(args) == 1:
+                await update.message.reply_text(config_edit.show_salary())
+            elif len(args) == 3 and args[2].lower() in ("off", "none", "clear"):
+                await update.message.reply_text(config_edit.clear_salary_floor(args[1]))
+            elif len(args) == 4:
+                await update.message.reply_text(
+                    config_edit.set_salary_floor(args[1], args[2], args[3])
+                )
+            else:
+                await update.message.reply_text(FILTER_USAGE)
+        elif section == "location":
+            if len(args) == 1:
+                await update.message.reply_text(config_edit.show_location())
+            elif len(args) >= 5:
+                await update.message.reply_text(
+                    config_edit.edit_location(args[1], args[2], args[3], " ".join(args[4:]))
+                )
+            else:
+                await update.message.reply_text(FILTER_USAGE)
+        else:
+            await update.message.reply_text(FILTER_USAGE)
+
+    async def on_sweep(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not owned(update):
+            return
+        args = context.args or []
+        if not args:
+            await update.message.reply_text(config_edit.show_sweeps())
+            return
+        if len(args) < 3:
+            await update.message.reply_text(SWEEP_USAGE)
+            return
+        await update.message.reply_text(
+            config_edit.set_sweep(args[0], args[1], " ".join(args[2:]))
+        )
 
     async def on_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not owned(update):
@@ -354,7 +440,8 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
             "• /more [n] — pull the next n queued roles (default 10)\n"
             "• /applied — list what you've applied to, or log a new one\n"
             "• /gate — progress toward the weekend-1 exit gate\n"
-            "• /company, /role, /set — edit config from here"
+            "• /company, /role, /filter, /sweep, /set — edit config from here\n"
+            "  (every config/*.yaml value is reachable; each command alone shows usage)"
         )
 
     async def register_commands(application) -> None:
@@ -362,8 +449,10 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
             ("more", "Pull the next queued roles (/more 20 for a bigger batch)"),
             ("applied", "List applications, or log one: Company | Title"),
             ("gate", "Weekend-1 gate progress per market x source tier"),
-            ("company", "list / add / rm tracked ATS companies"),
-            ("role", "list / add / rm title include+exclude terms"),
+            ("company", "list / add / rm / alias tracked ATS companies"),
+            ("role", "title include+exclude terms, and aggregator search queries"),
+            ("filter", "blocklist, salary floors, location rules"),
+            ("sweep", "what LinkedIn/Indeed are asked for (sites, location, recency)"),
             ("set", "View or change tuning values (freshness_days, digest_max, ...)"),
             ("start", "What this bot does"),
         ])
@@ -393,6 +482,8 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
     app.add_handler(CommandHandler("gate", on_gate))
     app.add_handler(CommandHandler("company", on_company))
     app.add_handler(CommandHandler("role", on_role))
+    app.add_handler(CommandHandler("filter", on_filter))
+    app.add_handler(CommandHandler("sweep", on_sweep))
     app.add_handler(CommandHandler("set", on_set))
     app.add_handler(CommandHandler("start", on_start))
     return app
