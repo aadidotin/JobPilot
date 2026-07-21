@@ -13,6 +13,7 @@ from jobpilot.bot import (
     APPLIED_USAGE,
     HELP,
     heartbeat,
+    help_messages,
     list_applications,
     liveness,
     ping_target,
@@ -408,3 +409,35 @@ def test_owner_is_not_blocked():
     ctx = type("C", (), {"args": [], "bot": None})()
     asyncio.run(handler.callback(update, ctx))
     assert update.message.replies  # got a real answer
+
+
+def test_help_all_returns_every_command_in_full():
+    joined = "\n".join(help_messages("all"))
+    for name, (_, usage) in HELP.items():
+        assert f"/{name}" in joined
+        assert usage.splitlines()[0] in joined, f"{name} usage truncated"
+
+
+def test_help_all_respects_the_telegram_message_limit():
+    """An over-long sendMessage is rejected outright, not truncated — so this
+    is the difference between full help and no help at all."""
+    for message in help_messages("all"):
+        assert len(message) <= bot_module.TELEGRAM_LIMIT
+
+
+def test_help_all_never_splits_mid_command(monkeypatch):
+    """Force many chunks and check each starts on a section boundary."""
+    monkeypatch.setattr(bot_module, "TELEGRAM_LIMIT", 400)
+    messages = help_messages("all")
+    assert len(messages) > 3
+    for message in messages[1:]:
+        assert message.lstrip().startswith("/")
+
+
+def test_help_all_and_full_are_the_same():
+    assert help_messages("all") == help_messages("full")
+
+
+def test_plain_help_is_still_one_message():
+    assert len(help_messages()) == 1
+    assert len(help_messages("sweep")) == 1

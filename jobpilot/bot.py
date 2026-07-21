@@ -98,6 +98,14 @@ SET_USAGE = (
     "\n"
     "Bounds are guardrails, not preferences — /set alone lists them."
 )
+HELP_USAGE = (
+    "/help          — the command list, one line each\n"
+    "/help all      — every command's full usage, in full\n"
+    "/help <command> — just that one, e.g. /help sweep\n"
+    "\n"
+    "Telegram only makes the command itself tappable, not its arguments, so "
+    "/help all exists for when typing the argument is the annoying part."
+)
 LIST_LIMIT = 20
 MORE_DEFAULT = 10
 MORE_MAX = 30
@@ -115,11 +123,12 @@ HELP: dict[str, tuple[str, str]] = {
     "filter": ("Blocklist, salary floors, location rules", FILTER_USAGE),
     "sweep": ("What LinkedIn/Indeed are asked for", SWEEP_USAGE),
     "set": ("Numeric tunables and schedule hours", SET_USAGE),
-    "help": ("This list; /help <command> for detail", "/help\n/help <command>"),
-    "start": ("What this bot is", "/start"),
+    "help": ("This list; /help all for everything", HELP_USAGE),
+    "start": ("What this bot is", "/start — greeting plus the /help overview."),
 }
 DAILY = ("more", "applied", "gate")
 CONFIG = ("company", "role", "filter", "sweep", "set")
+TELEGRAM_LIMIT = 4096
 
 
 # ---- access control ----
@@ -149,12 +158,35 @@ def note_unauthorized(chat_id, seen: set) -> str | None:
 
 # ---- business logic (sync, tested) ----
 
+def help_messages(topic: str = "") -> list[str]:
+    """One entry per Telegram message.
+
+    /help all is longer than Telegram's 4096-char limit, and an over-long
+    sendMessage is rejected outright rather than truncated — so the full dump
+    is split on command boundaries, never mid-usage.
+    """
+    if topic.strip().lower() not in ("all", "full"):
+        return [render_help(topic)]
+
+    sections = [f"/{name} — {summary}\n{usage}" for name, (summary, usage) in HELP.items()]
+    messages, current = [], "📖 Every command, in full:"
+    for section in sections:
+        candidate = f"{current}\n\n{'─' * 24}\n{section}"
+        if len(candidate) > TELEGRAM_LIMIT:
+            messages.append(current)
+            current = section
+        else:
+            current = candidate
+    messages.append(current)
+    return messages
+
+
 def render_help(topic: str = "") -> str:
     """/help, or /help <command> for that command's full usage."""
     topic = topic.strip().lstrip("/").lower()
     if topic:
         if topic not in HELP:
-            return (f"❌ No command /{topic}. Try /help.")
+            return (f"❌ No command /{topic}. Try /help, or /help all.")
         return f"/{topic} — {HELP[topic][0]}\n\n{HELP[topic][1]}"
 
     def block(title: str, names) -> str:
@@ -165,10 +197,12 @@ def render_help(topic: str = "") -> str:
     # cannot quietly go missing from the overview.
     other = [n for n in HELP if n not in DAILY and n not in CONFIG]
     return "\n\n".join([
-        "🧭 JobPilot — /help <command> for detail on any of these.",
+        "🧭 JobPilot commands",
         block("Day to day:", DAILY),
         block("Editing config (no laptop needed):", CONFIG),
         block("Meta:", other),
+        "📖 /help all — full usage for every command\n"
+        "📖 /help <command> — just one, e.g. /help sweep",
         "👍/👎 on a job card is the whole feedback loop — it is what /gate counts.",
     ])
 
@@ -535,7 +569,8 @@ def build_application(token: str, owner_chat_id: int, ping_url: str | None = Non
     async def on_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not owned(update):
             return
-        await update.message.reply_text(render_help(" ".join(context.args or "")))
+        for message in help_messages(" ".join(context.args or "")):
+            await update.message.reply_text(message)
 
     async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not owned(update):
