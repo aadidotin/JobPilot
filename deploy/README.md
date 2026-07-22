@@ -16,12 +16,17 @@ Point the database at a real, gitignored location by adding to `.env`:
 JOBPILOT_DB=data/jobpilot.db
 ```
 
-Then create it:
+Then create it — on a fresh deploy, build the schema through Alembic so the
+database is recorded at the current migration version from the start:
 
 ```bash
 mkdir -p data
-uv run jobpilot initdb
+uv run alembic upgrade head
 ```
+
+(`uv run jobpilot initdb` also builds the tables, but it does not record a
+migration version, so a later `alembic upgrade` would collide with the tables
+it already made. Prefer `alembic upgrade head` for a brand-new database.)
 
 ## 2. Bot daemon (receives taps)
 
@@ -135,6 +140,42 @@ uv run jobpilot run --force-digest     # also send the digest now
 `--force-digest` on a fresh database sends up to `digest_max` (25) messages.
 That cap is the only thing standing between you and ~290 notifications on day
 one, so lower it before raising it.
+
+## Database migrations
+
+The schema is versioned with Alembic. `create_all` (what `jobpilot initdb`
+uses) can build a fresh schema but never *change* one — SQLite can't ALTER most
+columns in place — so every schema change after the first goes through a
+migration. The live database carries the only copy of your 👍/👎 annotations,
+so the rule is **migrate, never rebuild.**
+
+To change the schema:
+
+```bash
+# 1. Edit the models in jobpilot/models.py, then autogenerate the migration:
+uv run alembic revision --autogenerate -m "add whatever column"
+
+# 2. READ the generated file in alembic/versions/ — autogenerate is a draft,
+#    not gospel (it misses some constraint and data-move cases).
+
+# 3. Apply it. On SQLite this runs in batch mode (rebuild-and-swap per table),
+#    and your rows are preserved:
+uv run alembic upgrade head
+```
+
+Useful checks:
+
+```bash
+uv run alembic current   # which revision the live DB is at
+uv run alembic history   # the migration chain
+uv run alembic check     # models and DB in sync? (fails if a migration is owed)
+uv run alembic downgrade -1   # undo the last migration
+```
+
+Before applying a migration to the live DB, rehearse it on a copy — take a
+snapshot with `jobpilot.backup.snapshot(DB_PATH, dest)` and point `JOBPILOT_DB`
+at the copy. A nightly backup already runs (section 4), but a fresh snapshot
+right before a schema change is cheap insurance.
 
 ## Turning it off
 

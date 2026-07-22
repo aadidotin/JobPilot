@@ -34,6 +34,16 @@ SessionLocal = sessionmaker(bind=engine)
 
 
 def init_db() -> None:
+    """Create any missing tables. Idempotent — a no-op once the schema exists.
+
+    This builds a schema from scratch but CANNOT evolve one (create_all never
+    ALTERs an existing table). Schema *changes* go through Alembic:
+        alembic revision --autogenerate -m "..."   # write the migration
+        alembic upgrade head                        # apply it (data preserved)
+    On a fresh deploy, run `alembic upgrade head` instead of relying on this;
+    it both builds the schema and records the migration version. See
+    deploy/README.md → "Database migrations".
+    """
     Base.metadata.create_all(engine)
 
 
